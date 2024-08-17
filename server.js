@@ -22,7 +22,7 @@ app.use(express.static('public'));
 app.use('/generated', express.static(path.join(__dirname, 'generated')));
 
 if (!process.env.OPENAI_API_KEY) {
-  console.error('API keys are not set in environment variables');
+  console.error('API key is not set in environment variables');
   process.exit(1);
 }
 
@@ -70,13 +70,29 @@ async function processImageAsync(taskId, imagePath, style) {
     tasks.set(taskId, { status: 'analyzing', progress: 25 });
     io.emit('taskUpdate', { taskId, status: 'analyzing', progress: 25 });
     
-    // Загрузить и преобразовать изображение в базовый64
-    const imageBuffer = await sharp(imagePath).resize(512, 512).toBuffer(); // измените размер изображения для быстроты обработки
-    const base64Image = imageBuffer.toString('base64');
+    // Загрузить изображение и преобразовать его в base64
+    const imageBuffer = await sharp(imagePath).toBuffer();
 
-    // Здесь обычно мы бы использовали модель CLIP для анализа изображения и создания текстового описания,
-    // но для упрощения мы используем фиксированный промпт:
-    const dallePrompt = `A beautiful watercolor painting of the following scene: [опишите сцену, которая отображена на изображении]`;
+    // Отправка изображения в OpenAI для распознавания
+    const imageDescriptionResponse = await openai.chat.completions.create({
+      model: 'gpt-4-vision',
+      messages: [
+        { role: 'system', content: 'You are an assistant that can describe images.' },
+        { role: 'user', content: 'Describe the image.' },
+      ],
+      files: [
+        {
+          filename: 'image.png',
+          content: imageBuffer.toString('base64'),
+        },
+      ],
+      temperature: 0.5,
+    });
+
+    const imageDescription = imageDescriptionResponse.choices[0].message.content;
+
+    // Создание промпта для генерации изображения в стиле акварели
+    const dallePrompt = `A watercolor painting of ${imageDescription}`;
 
     // Отправка запроса к DALL-E для генерации изображения на основе описания
     const dalleResponse = await openai.images.generate({
