@@ -61,7 +61,7 @@ app.post('/upload', upload.single('photo'), async (req, res) => {
     tasks.set(taskId, { status: 'processing', style });
     res.json({ taskId });
     sendStatusUpdate(taskId, 'Task created, starting processing');
-    processImageAsync(taskId, req.file.path, style);
+    await processImageAsync(taskId, req.file.path, style);
   } catch (error) {
     console.error('Upload processing error:', error);
     res.status(400).json({ error: error.message });
@@ -71,6 +71,7 @@ app.post('/upload', upload.single('photo'), async (req, res) => {
 app.get('/facebook-app-id', (req, res) => {
   res.json({ appId: process.env.FACEBOOK_APP_ID });
 });
+
 async function initializeFacebookSDK() {
   try {
     const response = await fetch('/facebook-app-id');
@@ -79,16 +80,16 @@ async function initializeFacebookSDK() {
 
     window.fbAsyncInit = function() {
       FB.init({
-        appId      : appId,
-        cookie     : true,
-        xfbml      : true,
-        version    : 'v12.0'
+        appId: appId,
+        cookie: true,
+        xfbml: true,
+        version: 'v12.0'
       });
     };
 
     (function(d, s, id){
       var js, fjs = d.getElementsByTagName(s)[0];
-      if (d.getElementById(id)) {return;}
+      if (d.getElementById(id)) { return; }
       js = d.createElement(s); js.id = id;
       js.src = "https://connect.facebook.net/en_US/sdk.js";
       fjs.parentNode.insertBefore(js, fjs);
@@ -129,29 +130,37 @@ async function processImageAsync(taskId, imagePath, style) {
 
 async function applyPicassoStyle(imagePath, taskId) {
   try {
-    // Загрузка изображения
+    // Ensure 'generated' directory exists
+    const generatedDir = path.join(__dirname, 'generated');
+    if (!await fs.stat(generatedDir).catch(() => false)) {
+      await fs.mkdir(generatedDir);
+    }
+
+    // Load image
     const imageBuffer = await sharp(imagePath).toBuffer();
     const base64Image = imageBuffer.toString('base64');
 
-    // Создание промпта для Claude
-   const prompt = `
+    // Create prompt for Claude
+    const prompt = `
 Human: Analyze the following image and describe how it would look if painted in the style of Pablo Picasso. Focus on the key elements that would change, such as the use of geometric shapes, bold colors, and fragmented forms typical of Picasso's work.
+
+Assistant:
 `;
 
-    // Отправка запроса к Claude
+    // Send request to Claude
     const response = await anthropic.completions.create({
       model: "claude-2",
       prompt: prompt,
       max_tokens_to_sample: 300,
     });
 
-    // Получение описания от Claude
+    // Get description from Claude
     const picassoDescription = response.completion;
 
-    // Создание промпта для DALL-E на основе описания Claude
+    // Create prompt for DALL-E based on Claude's description
     const dallePrompt = `Create an image in the style of Pablo Picasso based on this description: ${picassoDescription}`;
 
-    // Отправка запроса к DALL-E
+    // Send request to DALL-E
     const dalleResponse = await openai.images.generate({
       model: "dall-e-3",
       prompt: dallePrompt,
@@ -159,19 +168,14 @@ Human: Analyze the following image and describe how it would look if painted in 
       size: "1024x1024",
     });
 
-    // Получение URL сгенерированного изображения
+    // Get generated image URL
     const generatedImageUrl = dalleResponse.data[0].url;
-    // Создание дирректории
-    const generatedDir = path.join(__dirname, 'generated');
-    if (!fs.existsSync(generatedDir)) {
-      await fs.mkdir(generatedDir);
-    }
 
-    // Загрузка сгенерированного изображения
+    // Download generated image
     const generatedImageResponse = await fetch(generatedImageUrl);
     const generatedImageBuffer = await generatedImageResponse.buffer();
 
-    // Сохранение сгенерированного изображения
+    // Save the generated image
     const outputPath = path.join(__dirname, 'generated', `${taskId}_picasso.png`);
     await sharp(generatedImageBuffer).toFile(outputPath);
 
