@@ -147,9 +147,9 @@ Human: Describe how the following image would look if it were painted by Pablo P
 Assistant:
 `;
 
-    // Send request to Claude
+    // Send request to Claude 3.5 Sonnet
     const response = await anthropic.completions.create({
-      model: "claude-2",
+      model: "claude-3.5-sonnet",
       prompt: prompt,
       max_tokens_to_sample: 300,
     });
