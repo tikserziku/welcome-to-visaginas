@@ -19,6 +19,9 @@ const io = socketIo(server);
 
 const upload = multer({ dest: 'uploads/' });
 
+app.use(express.static('public'));
+app.use('/generated', express.static(path.join(__dirname, 'generated')));
+
 if (!process.env.ANTHROPIC_API_KEY || !process.env.OPENAI_API_KEY || !process.env.FACEBOOK_APP_ID) {
   console.error('API keys or Facebook App ID are not set in environment variables');
   process.exit(1);
@@ -31,9 +34,6 @@ const anthropic = new Anthropic({
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
-
-app.use(express.static('public'));
-app.use('/generated', express.static(path.join(__dirname, 'generated')));
 
 const tasks = new Map();
 let totalGeneratedImages = 0;
@@ -102,10 +102,50 @@ async function processImageAsync(taskId, imagePath, style) {
 }
 
 async function applyPicassoStyle(imagePath, taskId) {
-  // Здесь должна быть реализация применения стиля Пикассо
-  // Это может включать вызов API Anthropic или OpenAI
-  // Для примера, мы просто возвращаем путь к исходному изображению
-  return imagePath;
+  try {
+    // Загрузка изображения
+    const image = await sharp(imagePath).toBuffer();
+
+    // Создание промпта для Claude
+    const prompt = `Please analyze this image and describe how it would look if painted in the style of Pablo Picasso. Focus on the key elements that would change, such as the use of geometric shapes, bold colors, and fragmented forms typical of Picasso's work.`;
+
+    // Отправка запроса к Claude
+    const response = await anthropic.completions.create({
+      model: "claude-2",
+      prompt: prompt,
+      max_tokens_to_sample: 300,
+    });
+
+    // Получение описания от Claude
+    const picassoDescription = response.completion;
+
+    // Создание промпта для DALL-E на основе описания Claude
+    const dallePrompt = `Create an image in the style of Pablo Picasso based on this description: ${picassoDescription}`;
+
+    // Отправка запроса к DALL-E
+    const dalleResponse = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: dallePrompt,
+      n: 1,
+      size: "1024x1024",
+    });
+
+    // Получение URL сгенерированного изображения
+    const generatedImageUrl = dalleResponse.data[0].url;
+
+    // Загрузка сгенерированного изображения
+    const generatedImageResponse = await fetch(generatedImageUrl);
+    const generatedImageBuffer = await generatedImageResponse.buffer();
+
+    // Сохранение сгенерированного изображения
+    const outputPath = path.join(__dirname, 'generated', `${taskId}_picasso.png`);
+    await sharp(generatedImageBuffer).toFile(outputPath);
+
+    return `/generated/${taskId}_picasso.png`;
+  } catch (error) {
+    console.error('Error in applyPicassoStyle:', error);
+    throw error;
+  }
 }
 
 const PORT = process.env.PORT || 3000;
