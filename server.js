@@ -71,6 +71,32 @@ app.post('/upload', upload.single('photo'), async (req, res) => {
 app.get('/facebook-app-id', (req, res) => {
   res.json({ appId: process.env.FACEBOOK_APP_ID });
 });
+async function initializeFacebookSDK() {
+  try {
+    const response = await fetch('/facebook-app-id');
+    const data = await response.json();
+    const appId = data.appId;
+
+    window.fbAsyncInit = function() {
+      FB.init({
+        appId      : appId,
+        cookie     : true,
+        xfbml      : true,
+        version    : 'v12.0'
+      });
+    };
+
+    (function(d, s, id){
+      var js, fjs = d.getElementsByTagName(s)[0];
+      if (d.getElementById(id)) {return;}
+      js = d.createElement(s); js.id = id;
+      js.src = "https://connect.facebook.net/en_US/sdk.js";
+      fjs.parentNode.insertBefore(js, fjs);
+    }(document, 'script', 'facebook-jssdk'));
+  } catch (error) {
+    console.error('Failed to initialize Facebook SDK:', error);
+  }
+}
 
 async function processImageAsync(taskId, imagePath, style) {
   try {
