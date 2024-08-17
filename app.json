@@ -12,6 +12,9 @@
     },
     "FACEBOOK_APP_ID": {
       "description": "Facebook App ID for integration"
+    },
+    "FACEBOOK_APP_SECRET": {
+      "description": "Facebook App Secret for secure operations"
     }
   },
   "buildpacks": [
