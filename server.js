@@ -104,10 +104,12 @@ async function processImageAsync(taskId, imagePath, style) {
 async function applyPicassoStyle(imagePath, taskId) {
   try {
     // Загрузка изображения
-    const image = await sharp(imagePath).toBuffer();
+    const imageBuffer = await sharp(imagePath).toBuffer();
+    const base64Image = imageBuffer.toString('base64');
 
     // Создание промпта для Claude
-    const prompt = `Please analyze this image and describe how it would look if painted in the style of Pablo Picasso. Focus on the key elements that would change, such as the use of geometric shapes, bold colors, and fragmented forms typical of Picasso's work.`;
+   const prompt = `
+Human: Analyze the following image and describe how it would look if painted in the style of Pablo Picasso. Focus on the key elements that would change, such as the use of geometric shapes, bold colors, and fragmented forms typical of Picasso's work.;`
 
     // Отправка запроса к Claude
     const response = await anthropic.completions.create({
