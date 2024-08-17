@@ -142,7 +142,7 @@ async function applyPicassoStyle(imagePath, taskId) {
 
     // Create prompt for Claude
     const prompt = `
-Human: Analyze the following image and describe how it would look if painted in the style of Pablo Picasso. Focus on the key elements that would change, such as the use of geometric shapes, bold colors, and fragmented forms typical of Picasso's work.
+Human: Describe how the following image would look if it were painted by Pablo Picasso, focusing on the artistic style. Highlight key elements like geometric shapes, bold colors, and fragmented forms that are characteristic of Picasso's work.
 
 Assistant:
 `;
