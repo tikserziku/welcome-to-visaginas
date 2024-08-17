@@ -1,41 +1,10 @@
 const socket = io();
 let currentTaskId = null;
 
-// Функция для получения App ID с сервера
-async function getFacebookAppId() {
-    try {
-        const response = await fetch('/facebook-app-id');
-        const data = await response.json();
-        return data.appId;
-    } catch (error) {
-        console.error('Error fetching Facebook App ID:', error);
-        return null;
-    }
-}
-
-// Инициализация Facebook SDK с полученным App ID
-async function initFacebookSDK() {
-    const appId = await getFacebookAppId();
-    if (appId) {
-        FB.init({
-            appId      : appId,
-            cookie     : true,
-            xfbml      : true,
-            version    : 'v16.0'
-        });
-        FB.AppEvents.logPageView();
-    } else {
-        console.error('Failed to initialize Facebook SDK: App ID not available');
-    }
-}
-
 document.addEventListener('DOMContentLoaded', function() {
-    initFacebookSDK();
-    
     const uploadButton = document.getElementById('uploadPhoto');
     const fileInput = document.getElementById('fileInput');
     const generateButton = document.getElementById('generateDesign');
-    const fbLoginButton = document.getElementById('fbLoginButton');
 
     uploadButton.addEventListener('click', function() {
         fileInput.click();
@@ -48,31 +17,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 displayThumbnail(file);
                 enableGenerateButton();
             } else {
-                alert('Please select a JPEG or PNG image.');
+                alert('Пожалуйста, выберите изображение в формате JPEG или PNG.');
                 e.target.value = '';
             }
         }
     });
 
     generateButton.addEventListener('click', handleGenerateDesign);
-    fbLoginButton.addEventListener('click', loginWithFacebook);
 
-    initializeImageCounter();
+    initializeFacebookSDK();
 });
-
-function loginWithFacebook() {
-    FB.login(function(response) {
-        if (response.authResponse) {
-            console.log('Welcome! Fetching your information...');
-            FB.api('/me', function(response) {
-                console.log('Logged in as ' + response.name);
-                document.getElementById('fbLoginButton').textContent = 'Logged in as ' + response.name;
-            });
-        } else {
-            console.log('User cancelled login or did not fully authorize.');
-        }
-    }, {scope: 'public_profile,email,user_photos'});
-}
 
 function isValidImageType(file) {
     const acceptedImageTypes = ['image/jpeg', 'image/png'];
@@ -98,13 +52,13 @@ function enableGenerateButton() {
 async function handleGenerateDesign() {
     const fileInput = document.getElementById('fileInput');
     if (fileInput.files.length === 0) {
-        alert('Please select a photo first');
+        alert('Пожалуйста, сначала выберите фото');
         return;
     }
 
     const file = fileInput.files[0];
     if (!isValidImageType(file)) {
-        alert('Please select a JPEG or PNG image.');
+        alert('Пожалуйста, выберите изображение в формате JPEG или PNG.');
         return;
     }
 
@@ -115,7 +69,7 @@ async function handleGenerateDesign() {
     try {
         showProgressBar();
         setProgress(0);
-        displayStatus('Uploading file...');
+        displayStatus('Загрузка файла...');
         
         clearStatusLog();
 
@@ -126,7 +80,7 @@ async function handleGenerateDesign() {
 
         if (!response.ok) {
             const errorData = await response.json();
-            throw new Error(errorData.error || 'Upload error');
+            throw new Error(errorData.error || 'Ошибка загрузки');
         }
 
         const { taskId } = await response.json();
@@ -134,7 +88,7 @@ async function handleGenerateDesign() {
 
         clearResults();
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Ошибка:', error);
         hideProgressBar();
         displayError(error.message);
     }
@@ -159,20 +113,15 @@ socket.on('taskUpdate', (update) => {
 socket.on('cardGenerated', (data) => {
     if (data.taskId === currentTaskId) {
         displayGreetingCard(data.cardUrl);
-        postToFacebook(data.cardUrl);
     }
-});
-
-socket.on('updateImageCount', (count) => {
-    updateImageCounter(count);
 });
 
 function getStatusMessage(status) {
     switch (status) {
-        case 'analyzing': return 'Analyzing image...';
-        case 'applying style': return 'Applying Picasso style...';
-        case 'completed': return 'Processing completed';
-        default: return 'Processing...';
+        case 'analyzing': return 'Анализ изображения...';
+        case 'applying style': return 'Применение стиля Пикассо...';
+        case 'completed': return 'Обработка завершена';
+        default: return 'Обработка...';
     }
 }
 
@@ -185,12 +134,12 @@ function displayGreetingCard(url) {
 
     const img = document.createElement('img');
     img.src = url;
-    img.alt = 'Greeting Card';
+    img.alt = 'Поздравительная открытка';
     img.className = 'w-full rounded-lg shadow-md mb-4';
 
     const textOverlay = document.createElement('div');
     textOverlay.className = 'absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white text-center py-4 px-2';
-    textOverlay.innerHTML = '<h2 class="text-3xl font-bold">Happy Birthday Visaginas!</h2>';
+    textOverlay.innerHTML = '<h2 class="text-3xl font-bold">С Днем Рождения, Висагинас!</h2>';
 
     container.appendChild(img);
     container.appendChild(textOverlay);
@@ -199,32 +148,17 @@ function displayGreetingCard(url) {
     const downloadBtn = document.createElement('a');
     downloadBtn.href = url;
     downloadBtn.download = 'visaginas-birthday-card.png';
-    downloadBtn.textContent = 'Download Card';
+    downloadBtn.textContent = 'Скачать открытку';
     downloadBtn.className = 'bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded';
     resultsDiv.appendChild(downloadBtn);
 
-    hideProgressBar();
-}
+    const shareBtn = document.createElement('button');
+    shareBtn.textContent = 'Поделиться на Facebook';
+    shareBtn.className = 'bg-blue-600 hover:bg-blue-800 text-white font-bold py-2 px-4 rounded ml-2';
+    shareBtn.onclick = () => shareOnFacebook(url);
+    resultsDiv.appendChild(shareBtn);
 
-function postToFacebook(imageUrl) {
-    FB.getLoginStatus(function(response) {
-        if (response.status === 'connected') {
-            FB.api('/me/photos', 'POST', {
-                url: imageUrl,
-                caption: 'My Picasso-style birthday card for Visaginas!'
-            }, function(response) {
-                if (!response || response.error) {
-                    console.error('Error posting to Facebook', response.error);
-                } else {
-                    console.log('Successfully posted to Facebook!');
-                    alert('Your card has been posted to Facebook!');
-                }
-            });
-        } else {
-            console.log('User is not logged in to Facebook');
-            alert('Please log in to Facebook to share your card');
-        }
-    });
+    hideProgressBar();
 }
 
 function showProgressBar() {
@@ -265,15 +199,32 @@ function clearStatusLog() {
     document.getElementById('statusLog').innerHTML = '';
 }
 
-function initializeImageCounter() {
-    fetch('/imageCount')
-        .then(response => response.json())
-        .then(data => {
-            updateImageCounter(data.count);
-        })
-        .catch(error => console.error('Error fetching image count:', error));
+async function initializeFacebookSDK() {
+    const response = await fetch('/facebook-app-id');
+    const data = await response.json();
+    const appId = data.appId;
+
+    window.fbAsyncInit = function() {
+        FB.init({
+            appId      : appId,
+            cookie     : true,
+            xfbml      : true,
+            version    : 'v12.0'
+        });
+    };
+
+    (function(d, s, id){
+        var js, fjs = d.getElementsByTagName(s)[0];
+        if (d.getElementById(id)) {return;}
+        js = d.createElement(s); js.id = id;
+        js.src = "https://connect.facebook.net/en_US/sdk.js";
+        fjs.parentNode.insertBefore(js, fjs);
+    }(document, 'script', 'facebook-jssdk'));
 }
 
-function updateImageCounter(count) {
-    document.getElementById('imageCountValue').textContent = count;
+function shareOnFacebook(imageUrl) {
+    FB.ui({
+        method: 'share',
+        href: window.location.origin + imageUrl,
+    }, function(response){});
 }
