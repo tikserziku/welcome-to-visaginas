@@ -1,0 +1,22 @@
+{
+  "name": "Visaginas Birthday Card Generator",
+  "description": "Web app for creating Picasso-style greeting cards for Visaginas using AI and Facebook integration",
+  "repository": "https://github.com/your-username/visaginas-birthday-card-app",
+  "keywords": ["node", "express", "ai", "facebook"],
+  "env": {
+    "ANTHROPIC_API_KEY": {
+      "description": "API key for Anthropic services"
+    },
+    "OPENAI_API_KEY": {
+      "description": "API key for OpenAI services"
+    },
+    "FACEBOOK_APP_ID": {
+      "description": "Facebook App ID for integration"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ]
+}
