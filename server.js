@@ -109,11 +109,11 @@ async function applyPicassoStyle(imagePath, taskId) {
 
     // Создание промпта для Claude
    const prompt = `
-Human: Analyze the following image and describe how it would look if painted in the style of Pablo Picasso. Focus on the key elements that would change, such as the use of geometric shapes, bold colors, and fragmented forms typical of Picasso's work.;`
+Human: Analyze the following image and describe how it would look if painted in the style of Pablo Picasso. Focus on the key elements that would change, such as the use of geometric shapes, bold colors, and fragmented forms typical of Picasso's work.
 
     // Отправка запроса к Claude
     const response = await anthropic.completions.create({
-      model: "claude-2",
+      model: "claude-3.5",
       prompt: prompt,
       max_tokens_to_sample: 300,
     });
