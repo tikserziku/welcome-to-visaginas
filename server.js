@@ -19,11 +19,8 @@ const io = socketIo(server);
 
 const upload = multer({ dest: 'uploads/' });
 
-app.use(express.static('public'));
-app.use('/generated', express.static(path.join(__dirname, 'generated')));
-
-if (!process.env.ANTHROPIC_API_KEY || !process.env.OPENAI_API_KEY || !process.env.FACEBOOK_APP_ID) {
-  console.error('API keys or Facebook App ID are not set in environment variables');
+if (!process.env.ANTHROPIC_API_KEY || !process.env.OPENAI_API_KEY) {
+  console.error('API keys are not set in environment variables');
   process.exit(1);
 }
 
@@ -35,8 +32,10 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+app.use(express.static('public'));
+app.use('/generated', express.static(path.join(__dirname, 'generated')));
+
 const tasks = new Map();
-let totalGeneratedImages = 0;
 
 io.on('connection', (socket) => {
   console.log('User connected');
@@ -61,43 +60,12 @@ app.post('/upload', upload.single('photo'), async (req, res) => {
     tasks.set(taskId, { status: 'processing', style });
     res.json({ taskId });
     sendStatusUpdate(taskId, 'Task created, starting processing');
-    await processImageAsync(taskId, req.file.path, style);
+    processImageAsync(taskId, req.file.path, style);
   } catch (error) {
     console.error('Upload processing error:', error);
     res.status(400).json({ error: error.message });
   }
 });
-
-app.get('/facebook-app-id', (req, res) => {
-  res.json({ appId: process.env.FACEBOOK_APP_ID });
-});
-
-async function initializeFacebookSDK() {
-  try {
-    const response = await fetch('/facebook-app-id');
-    const data = await response.json();
-    const appId = data.appId;
-
-    window.fbAsyncInit = function() {
-      FB.init({
-        appId: appId,
-        cookie: true,
-        xfbml: true,
-        version: 'v12.0'
-      });
-    };
-
-    (function(d, s, id){
-      var js, fjs = d.getElementsByTagName(s)[0];
-      if (d.getElementById(id)) { return; }
-      js = d.createElement(s); js.id = id;
-      js.src = "https://connect.facebook.net/en_US/sdk.js";
-      fjs.parentNode.insertBefore(js, fjs);
-    }(document, 'script', 'facebook-jssdk'));
-  } catch (error) {
-    console.error('Failed to initialize Facebook SDK:', error);
-  }
-}
 
 async function processImageAsync(taskId, imagePath, style) {
   try {
@@ -112,79 +80,111 @@ async function processImageAsync(taskId, imagePath, style) {
       processedImageUrl = await applyPicassoStyle(imagePath, taskId);
       tasks.set(taskId, { status: 'applying style', progress: 75 });
       io.emit('taskUpdate', { taskId, status: 'applying style', progress: 75 });
-      
-      totalGeneratedImages++;
-      io.emit('updateImageCount', totalGeneratedImages);
     }
     
     sendStatusUpdate(taskId, 'Processing completed');
-    tasks.set(taskId, { status: 'completed', progress: 100 });
-    io.emit('taskUpdate', { taskId, status: 'completed', progress: 100 });
+    tasks.set(taskId, { status: 'completed' });
+    io.emit('taskUpdate', { taskId, status: 'completed' });
     io.emit('cardGenerated', { taskId, cardUrl: processedImageUrl });
   } catch (error) {
-    console.error(`Error processing image: ${error}`);
+    console.error(`Error processing image for task ${taskId}:`, error);
     tasks.set(taskId, { status: 'error', error: error.message });
     io.emit('taskUpdate', { taskId, status: 'error', error: error.message });
+    sendStatusUpdate(taskId, `Error: ${error.message}`);
+  } finally {
+    try {
+      await fs.unlink(imagePath);
+      sendStatusUpdate(taskId, `Temporary file ${imagePath} deleted`);
+    } catch (unlinkError) {
+      console.error('Error deleting temporary file:', unlinkError);
+    }
   }
 }
 
 async function applyPicassoStyle(imagePath, taskId) {
   try {
-    // Ensure 'generated' directory exists
-    const generatedDir = path.join(__dirname, 'generated');
-    if (!await fs.stat(generatedDir).catch(() => false)) {
-      await fs.mkdir(generatedDir);
-    }
-
-    // Load image
-    const imageBuffer = await sharp(imagePath).toBuffer();
+    sendStatusUpdate(taskId, 'Starting Picasso style application');
+    
+    sendStatusUpdate(taskId, 'Processing image');
+    const imageBuffer = await sharp(imagePath)
+      .jpeg()
+      .toBuffer();
+    
     const base64Image = imageBuffer.toString('base64');
+    sendStatusUpdate(taskId, 'Image converted to base64');
 
-    // Create prompt for Claude
-    const prompt = `
-Human: Describe how the following image would look if it were painted by Pablo Picasso, focusing on the artistic style. Highlight key elements like geometric shapes, bold colors, and fragmented forms that are characteristic of Picasso's work.
-
-Assistant:
-`;
-
-    // Send request to Claude 3.5 Sonnet
-    const response = await anthropic.completions.create({
-      model: "claude-3.5-sonnet",
-      prompt: prompt,
-      max_tokens_to_sample: 300,
+    sendStatusUpdate(taskId, 'Starting analysis with Anthropic');
+    const analysisMessage = await anthropic.beta.messages.create({
+      model: "claude-3-opus-20240229",
+      max_tokens: 1000,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/jpeg",
+                data: base64Image
+              }
+            },
+            {
+              type: "text",
+              text: "Analyze this image and describe its key elements and overall composition. Focus on aspects that would be important to recreate in a Picasso-style painting."
+            }
+          ]
+        }
+      ]
     });
 
-    // Get description from Claude
-    const picassoDescription = response.completion;
+    sendStatusUpdate(taskId, 'Anthropic analysis completed, creating prompt for OpenAI');
+    const imageAnalysis = analysisMessage.content[0].text;
 
-    // Create prompt for DALL-E based on Claude's description
-    const dallePrompt = `Create an image in the style of Pablo Picasso based on this description: ${picassoDescription}`;
+    const imagePrompt = `Create a new image in the style of Pablo Picasso based on the following description: ${imageAnalysis}. 
+    The image should incorporate cubist elements and bold, abstract shapes typical of Picasso's style.`;
 
-    // Send request to DALL-E
-    const dalleResponse = await openai.images.generate({
+    sendStatusUpdate(taskId, 'Starting image generation with OpenAI');
+    const imageResponse = await openai.images.generate({
       model: "dall-e-3",
-      prompt: dallePrompt,
+      prompt: imagePrompt,
       n: 1,
       size: "1024x1024",
     });
 
-    // Get generated image URL
-    const generatedImageUrl = dalleResponse.data[0].url;
+    const picassoImageUrl = imageResponse.data[0].url;
+    const picassoImageBuffer = await downloadImage(picassoImageUrl);
 
-    // Download generated image
-    const generatedImageResponse = await fetch(generatedImageUrl);
-    const generatedImageBuffer = await generatedImageResponse.buffer();
-
-    // Save the generated image
-    const outputPath = path.join(__dirname, 'generated', `${taskId}_picasso.png`);
-    await sharp(generatedImageBuffer).toFile(outputPath);
-
-    return `/generated/${taskId}_picasso.png`;
+    const generatedDir = path.join(__dirname, 'generated');
+    await fs.mkdir(generatedDir, { recursive: true });
+    
+    const outputFileName = `${taskId}-picasso.png`;
+    const outputPath = path.join(generatedDir, outputFileName);
+    await fs.writeFile(outputPath, picassoImageBuffer);
+    
+    sendStatusUpdate(taskId, `Picasso style successfully applied, file saved: ${outputPath}`);
+    return `/generated/${outputFileName}`;
   } catch (error) {
-    console.error('Error in applyPicassoStyle:', error);
+    sendStatusUpdate(taskId, `Error applying Picasso style: ${error.message}`);
+    throw error;
+  }
+}
+
+async function downloadImage(url) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (error) {
+    console.error('Error downloading image:', error);
     throw error;
   }
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
