@@ -113,7 +113,7 @@ Human: Analyze the following image and describe how it would look if painted in 
 
     // Отправка запроса к Claude
     const response = await anthropic.completions.create({
-      model: "claude-3.5",
+      model: "Claude 3.5 Sonnet",
       prompt: prompt,
       max_tokens_to_sample: 300,
     });
