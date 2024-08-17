@@ -70,67 +70,45 @@ async function processImageAsync(taskId, imagePath, style) {
     tasks.set(taskId, { status: 'analyzing', progress: 25 });
     io.emit('taskUpdate', { taskId, status: 'analyzing', progress: 25 });
     
-    let processedImageUrl = '';
-    if (style === 'watercolor') {
-      sendStatusUpdate(taskId, 'Applying Watercolor style...');
-      processedImageUrl = await applyWatercolorStyle(imagePath, taskId);
-      tasks.set(taskId, { status: 'applying style', progress: 75 });
-      io.emit('taskUpdate', { taskId, status: 'applying style', progress: 75 });
-      
-      totalGeneratedImages++;
-      io.emit('updateImageCount', totalGeneratedImages);
-    }
-    
-    sendStatusUpdate(taskId, 'Processing completed');
-    tasks.set(taskId, { status: 'completed', progress: 100 });
-    io.emit('taskUpdate', { taskId, status: 'completed', progress: 100 });
-    io.emit('cardGenerated', { taskId, cardUrl: processedImageUrl });
-  } catch (error) {
-    console.error(`Error processing image: ${error}`);
-    tasks.set(taskId, { status: 'error', error: error.message });
-    io.emit('taskUpdate', { taskId, status: 'error', error: error.message });
-  }
-}
-
-async function applyWatercolorStyle(imagePath, taskId) {
-  try {
-    // Ensure 'generated' directory exists
-    const generatedDir = path.join(__dirname, 'generated');
-    if (!await fs.stat(generatedDir).catch(() => false)) {
-      await fs.mkdir(generatedDir);
-    }
-
-    // Load image
-    const imageBuffer = await sharp(imagePath).toBuffer();
+    // Загрузить и преобразовать изображение в базовый64
+    const imageBuffer = await sharp(imagePath).resize(512, 512).toBuffer(); // измените размер изображения для быстроты обработки
     const base64Image = imageBuffer.toString('base64');
 
-    // Create prompt for DALL-E to generate watercolor style image
-    const dallePrompt = `Create a watercolor painting of the following image:`;
+    // Здесь обычно мы бы использовали модель CLIP для анализа изображения и создания текстового описания,
+    // но для упрощения мы используем фиксированный промпт:
+    const dallePrompt = `A beautiful watercolor painting of the following scene: [опишите сцену, которая отображена на изображении]`;
 
-    // Send request to DALL-E
+    // Отправка запроса к DALL-E для генерации изображения на основе описания
     const dalleResponse = await openai.images.generate({
       model: "dall-e-3",
       prompt: dallePrompt,
       n: 1,
       size: "1024x1024",
-      image: base64Image,
     });
 
-    // Get generated image URL
+    // Получение URL сгенерированного изображения
     const generatedImageUrl = dalleResponse.data[0].url;
 
-    // Download generated image
+    // Сохранение сгенерированного изображения
+    const generatedDir = path.join(__dirname, 'generated');
+    if (!await fs.stat(generatedDir).catch(() => false)) {
+      await fs.mkdir(generatedDir);
+    }
+
     const generatedImageResponse = await fetch(generatedImageUrl);
     const generatedImageBuffer = await generatedImageResponse.buffer();
 
-    // Save the generated image
     const outputPath = path.join(__dirname, 'generated', `${taskId}_watercolor.png`);
     await sharp(generatedImageBuffer).toFile(outputPath);
 
-    return `/generated/${taskId}_watercolor.png`;
+    sendStatusUpdate(taskId, 'Processing completed');
+    tasks.set(taskId, { status: 'completed', progress: 100 });
+    io.emit('taskUpdate', { taskId, status: 'completed', progress: 100 });
+    io.emit('cardGenerated', { taskId, cardUrl: `/generated/${taskId}_watercolor.png` });
   } catch (error) {
-    console.error('Error in applyWatercolorStyle:', error);
-    throw error;
+    console.error(`Error processing image: ${error}`);
+    tasks.set(taskId, { status: 'error', error: error.message });
+    io.emit('taskUpdate', { taskId, status: 'error', error: error.message });
   }
 }
 
