@@ -1,19 +1,37 @@
 const socket = io();
 let currentTaskId = null;
 
-// Инициализация Facebook SDK
-window.fbAsyncInit = function() {
-    FB.init({
-        appId      : 'YOUR_FACEBOOK_APP_ID', // Замените на ваш App ID
-        cookie     : true,
-        xfbml      : true,
-        version    : 'v16.0'
-    });
-      
-    FB.AppEvents.logPageView();   
-};
+// Функция для получения App ID с сервера
+async function getFacebookAppId() {
+    try {
+        const response = await fetch('/facebook-app-id');
+        const data = await response.json();
+        return data.appId;
+    } catch (error) {
+        console.error('Error fetching Facebook App ID:', error);
+        return null;
+    }
+}
+
+// Инициализация Facebook SDK с полученным App ID
+async function initFacebookSDK() {
+    const appId = await getFacebookAppId();
+    if (appId) {
+        FB.init({
+            appId      : appId,
+            cookie     : true,
+            xfbml      : true,
+            version    : 'v16.0'
+        });
+        FB.AppEvents.logPageView();
+    } else {
+        console.error('Failed to initialize Facebook SDK: App ID not available');
+    }
+}
 
 document.addEventListener('DOMContentLoaded', function() {
+    initFacebookSDK();
+    
     const uploadButton = document.getElementById('uploadPhoto');
     const fileInput = document.getElementById('fileInput');
     const generateButton = document.getElementById('generateDesign');
